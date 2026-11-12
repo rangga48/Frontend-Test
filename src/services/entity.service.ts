@@ -1,4 +1,4 @@
-import axios from 'axios'
+import { api } from './api'
 import type {
   BackendApiResponse,
   BackendEntityPayload,
@@ -9,17 +9,6 @@ import type {
 } from '../types/entity'
 import { normalizeStatus } from '../utils/entityHelpers'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
-
-export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  timeout: 6000,
-})
-
-// Helper to convert backend response item into frontend Entity model
 export function transformBackendEntity(raw: BackendEntityRaw): Entity {
   const latVal = typeof raw.latitude === 'string' ? parseFloat(raw.latitude) : Number(raw.latitude)
   const lngRaw = raw.longitude !== undefined ? raw.longitude : raw.longtitude
@@ -38,7 +27,6 @@ export function transformBackendEntity(raw: BackendEntityRaw): Entity {
   }
 }
 
-// Helper to convert frontend DTO into exact backend payload schema
 export function toBackendPayload(dto: CreateEntityDto | UpdateEntityDto): BackendEntityPayload {
   return {
     name: dto.name ?? '',
@@ -50,10 +38,9 @@ export function toBackendPayload(dto: CreateEntityDto | UpdateEntityDto): Backen
   }
 }
 
-export const entityApi = {
-  // GET http://localhost:8080/api/entities
+export const entityService = {
   async getEntities(): Promise<Entity[]> {
-    const response = await apiClient.get<BackendApiResponse<BackendEntityRaw[]> | BackendEntityRaw[]>('/entities')
+    const response = await api.get<BackendApiResponse<BackendEntityRaw[]> | BackendEntityRaw[]>('/entities')
     let rawList: BackendEntityRaw[] = []
 
     if (Array.isArray(response.data)) {
@@ -65,10 +52,21 @@ export const entityApi = {
     return rawList.map(transformBackendEntity)
   },
 
-  // POST http://localhost:8080/api/entities
+  async getEntityById(id: string | number): Promise<Entity> {
+    const response = await api.get<BackendApiResponse<BackendEntityRaw> | BackendEntityRaw>(
+      `/entities/${id}`
+    )
+    const rawItem =
+      response.data && 'data' in response.data && response.data.data
+        ? response.data.data
+        : (response.data as BackendEntityRaw)
+
+    return transformBackendEntity(rawItem)
+  },
+
   async createEntity(data: CreateEntityDto): Promise<Entity> {
     const payload = toBackendPayload(data)
-    const response = await apiClient.post<BackendApiResponse<BackendEntityRaw> | BackendEntityRaw>(
+    const response = await api.post<BackendApiResponse<BackendEntityRaw> | BackendEntityRaw>(
       '/entities',
       payload
     )
@@ -81,10 +79,9 @@ export const entityApi = {
     return transformBackendEntity(rawItem)
   },
 
-  // PUT http://localhost:8080/api/entities?id={id}
   async updateEntity(id: string | number, data: UpdateEntityDto): Promise<Entity> {
     const payload = toBackendPayload(data)
-    const response = await apiClient.put<BackendApiResponse<BackendEntityRaw> | BackendEntityRaw>(
+    const response = await api.put<BackendApiResponse<BackendEntityRaw> | BackendEntityRaw>(
       '/entities',
       payload,
       {
@@ -100,10 +97,12 @@ export const entityApi = {
     return transformBackendEntity(rawItem)
   },
 
-  // DELETE http://localhost:8080/api/entities?id={id}
   async deleteEntity(id: string | number): Promise<void> {
-    await apiClient.delete('/entities', {
+    await api.delete('/entities', {
       params: { id: String(id) },
     })
   },
 }
+
+export default entityService
+

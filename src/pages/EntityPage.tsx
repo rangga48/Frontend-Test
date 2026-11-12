@@ -1,92 +1,59 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import { EntityMap } from '../components/EntityMap'
 import { EntityDetail } from '../components/EntityDetail'
 import { EntityForm } from '../components/EntityForm'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { useEntities } from '../hooks/useEntities'
-import type { CreateEntityDto, Entity, EntityStatus } from '../types/entity'
+import { useEntityStore } from '../store/entity.store'
+import type { CreateEntityDto } from '../types/entity'
 
 export const EntityPage: React.FC = () => {
   const {
     entities,
-    loading,
-    error,
     selectedEntity,
+    statusFilter,
+    isLoading,
+    isSubmitting,
+    isDeleting,
+    error,
     notification,
-    selectEntity,
+    isFormOpen,
+    formMode,
+    editingEntity,
+    tempCoordinates,
+    deleteTarget,
     fetchEntities,
     createEntity,
     updateEntity,
-    deleteEntity,
+    selectEntity,
+    setStatusFilter,
+    openCreateModal,
+    openEditModal,
+    closeFormModal,
+    setTempCoordinates,
+    openDeleteDialog,
+    closeDeleteDialog,
+    confirmDelete,
     clearNotification,
-  } = useEntities()
+  } = useEntityStore()
 
-  // Form modal states
-  const [isFormOpen, setIsFormOpen] = useState(false)
-  const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
-  const [editingEntity, setEditingEntity] = useState<Entity | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [tempCoordinates, setTempCoordinates] = useState<{ lat: number; lng: number } | null>(null)
+  const filteredEntities = useMemo(() => {
+    if (statusFilter === 'all') return entities
+    return entities.filter(
+      (e) => (e.status || '').toLowerCase() === statusFilter.toLowerCase()
+    )
+  }, [entities, statusFilter])
 
-  // Filter state (optional quick view, default all)
-  const [statusFilter, setStatusFilter] = useState<EntityStatus | 'all'>('all')
-
-  // Confirm delete modal state
-  const [deleteTarget, setDeleteTarget] = useState<Entity | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  // Handle open add modal
-  const handleOpenAdd = () => {
-    setFormMode('create')
-    setEditingEntity(null)
-    setTempCoordinates(null)
-    setIsFormOpen(true)
-  }
-
-  // Handle open edit modal
-  const handleOpenEdit = (entity: Entity) => {
-    setFormMode('edit')
-    setEditingEntity(entity)
-    setIsFormOpen(true)
-  }
+  // Fetch initial entities on mount once
+  useEffect(() => {
+    useEntityStore.getState().fetchEntities()
+  }, [])
 
   // Handle form submission (Create or Update)
   const handleFormSubmit = async (formData: CreateEntityDto) => {
-    setIsSubmitting(true)
-    try {
-      if (formMode === 'edit' && editingEntity) {
-        const result = await updateEntity(editingEntity.id, formData)
-        if (result) {
-          setIsFormOpen(false)
-          setEditingEntity(null)
-        }
-      } else {
-        const result = await createEntity(formData)
-        if (result) {
-          setIsFormOpen(false)
-          setTempCoordinates(null)
-          // Automatically select newly created entity to focus on it
-          selectEntity(result)
-        }
-      }
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  // Handle delete request
-  const handleDeleteRequest = (entity: Entity) => {
-    setDeleteTarget(entity)
-  }
-
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget) return
-    setIsDeleting(true)
-    try {
-      await deleteEntity(deleteTarget.id)
-      setDeleteTarget(null)
-    } finally {
-      setIsDeleting(false)
+    if (formMode === 'edit' && editingEntity) {
+      await updateEntity(editingEntity.id, formData)
+    } else {
+      await createEntity(formData)
     }
   }
 
@@ -94,17 +61,8 @@ export const EntityPage: React.FC = () => {
   const handleMapClick = (lat: number, lng: number) => {
     if (isFormOpen) {
       setTempCoordinates({ lat, lng })
-    } else {
-      // If clicking empty map while an entity is selected, can deselect or prepare add
-      // Kept clean and non-intrusive
     }
   }
-
-  // Filtered entities
-  const filteredEntities = entities.filter((e) => {
-    if (statusFilter === 'all') return true
-    return e.status.toLowerCase() === statusFilter.toLowerCase()
-  })
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-white text-gray-800">
@@ -113,12 +71,13 @@ export const EntityPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold tracking-tight text-gray-900 m-0">Entity Map</h1>
           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
-            {entities.length} {entities.length === 1 ? 'entity' : 'entities'}
+            {filteredEntities.length} {filteredEntities.length === 1 ? 'entity' : 'entities'}
+            {statusFilter !== 'all' && ` (${entities.length} total)`}
           </span>
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Status filter buttons (simple & clean) */}
+          {/* Status filter buttons */}
           <div className="hidden md:flex items-center rounded-md border border-gray-200 p-0.5 text-xs bg-gray-50">
             <button
               type="button"
@@ -169,10 +128,10 @@ export const EntityPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Primary Action Button: Biru */}
+          {/* Primary Action Button */}
           <button
             type="button"
-            onClick={handleOpenAdd}
+            onClick={() => openCreateModal()}
             className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -185,11 +144,9 @@ export const EntityPage: React.FC = () => {
 
       {/* Main Map View Area */}
       <main className="relative flex-1 w-full h-[calc(100vh-64px)] overflow-hidden">
-        {/* Floating Notification State */}
+        {/* Floating Notification Toast */}
         {notification && (
-          <div
-            className={`absolute top-4 left-1/2 -translate-x-1/2 z-30 max-w-md w-full px-4 transition-all`}
-          >
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 max-w-md w-full px-4 transition-all">
             <div
               className={`flex items-center justify-between rounded-md p-3 shadow-lg border text-sm ${
                 notification.type === 'success'
@@ -221,7 +178,7 @@ export const EntityPage: React.FC = () => {
         )}
 
         {/* Global Loading Indicator */}
-        {loading && (
+        {isLoading && (
           <div className="absolute top-4 left-4 z-30 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-md px-3 py-2 shadow-sm flex items-center gap-2 text-xs text-gray-700">
             <svg className="w-4 h-4 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -249,8 +206,8 @@ export const EntityPage: React.FC = () => {
           </div>
         )}
 
-        {/* Empty State Banner (when no entities) */}
-        {!loading && entities.length === 0 && (
+        {/* Empty State Banner (when no entities registered at all) */}
+        {!isLoading && entities.length === 0 && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 bg-white border border-gray-200 rounded-lg p-6 shadow-xl max-w-sm text-center">
             <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-400">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -269,10 +226,26 @@ export const EntityPage: React.FC = () => {
             </p>
             <button
               type="button"
-              onClick={handleOpenAdd}
+              onClick={() => openCreateModal()}
               className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-blue-700"
             >
               + Add Entity
+            </button>
+          </div>
+        )}
+
+        {/* Filter Empty State Banner (when entities exist but none match filter) */}
+        {!isLoading && entities.length > 0 && filteredEntities.length === 0 && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg px-4 py-3 shadow-md text-center max-w-xs">
+            <p className="text-xs text-gray-600">
+              No entities found with status <span className="font-semibold capitalize text-gray-900">"{statusFilter}"</span>.
+            </p>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('all')}
+              className="mt-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium underline"
+            >
+              Reset filter to All
             </button>
           </div>
         )}
@@ -281,7 +254,7 @@ export const EntityPage: React.FC = () => {
         <EntityMap
           entities={filteredEntities}
           selectedEntity={selectedEntity}
-          onSelectEntity={(entity) => selectEntity(entity)}
+          onSelectEntity={selectEntity}
           onMapClick={handleMapClick}
           isSelectingLocation={isFormOpen}
           tempLocation={tempCoordinates}
@@ -292,8 +265,8 @@ export const EntityPage: React.FC = () => {
           entity={selectedEntity}
           isOpen={Boolean(selectedEntity)}
           onClose={() => selectEntity(null)}
-          onEdit={(entity) => handleOpenEdit(entity)}
-          onDelete={(entity) => handleDeleteRequest(entity)}
+          onEdit={openEditModal}
+          onDelete={openDeleteDialog}
         />
       </main>
 
@@ -305,10 +278,7 @@ export const EntityPage: React.FC = () => {
         initialData={editingEntity}
         presetCoordinates={tempCoordinates}
         isSubmitting={isSubmitting}
-        onClose={() => {
-          setIsFormOpen(false)
-          setTempCoordinates(null)
-        }}
+        onClose={closeFormModal}
         onSubmit={handleFormSubmit}
       />
 
@@ -321,8 +291,8 @@ export const EntityPage: React.FC = () => {
         cancelText="Cancel"
         isDangerous={true}
         isLoading={isDeleting}
-        onConfirm={handleConfirmDelete}
-        onCancel={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        onCancel={closeDeleteDialog}
       />
     </div>
   )
